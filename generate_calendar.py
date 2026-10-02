@@ -12,7 +12,7 @@ OUT = Path("calendar.ics")
 MANUAL = Path("manual_events.json")
 PARIS = ZoneInfo("Europe/Paris")
 CHANNEL_PAGES = {\n    "EUROSPORT": "https://coursedujour.com/fr/chaines/eurosport/",\n    "FRANCE TV": "https://coursedujour.com/fr/chaines/france-tv/",\n}\n
-# Diffuseurs français que nous voulons suivre.
+# Diffuseurs français que nous voulons suivre.\n# Source principale: Course du Jour, avec dédoublonnage par course/date/discipline.
 CHANNELS = {
     "Eurosport / HBO Max": "EUROSPORT",
     "Eurosport / Discovery+": "EUROSPORT",
