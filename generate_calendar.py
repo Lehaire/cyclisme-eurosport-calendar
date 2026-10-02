@@ -229,29 +229,31 @@ def parse_date_fragment(s):
     return datetime(int(m.group(3) or 2026),mon,int(m.group(1))).date() if mon else None
 
 def parse_channel_page(url,label):
-    soup=BeautifulSoup(requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=30).text,"html.parser")
-    events=[]; title=None
-    for n in soup.find_all(["h2","h3","li"]):
-        if n.name=="h2": title=None; continue
-        if n.name=="h3":
-            t=clean(n.get_text(" ",strip=True))
-            if t and t.lower() not in {"courses en vedette","derniers résumés"}: title=t
+    raw=fetch(url)
+    # Parse h3 race sections directly from HTML; avoids walking every nested li.
+    chunks=re.findall(r"<h3[^>]*>(.*?)</h3>(.*?)(?=<h3[^>]*>|<h2[^>]*>|$)",raw,re.I|re.S)
+    events=[]
+    for h3_html,body in chunks:
+        title=clean(re.sub(r"<[^>]+>"," ",h3_html))
+        if not title or title.lower() in {"courses en vedette","derniers résumés"}:
             continue
-        if not title: continue
-        txt=clean(n.get_text(" ",strip=True))
-        if "Copier" not in txt: continue
-        tm=TIME_RE.search(txt)
-        if not tm: continue
-        if label=="EUROSPORT" and "(" in txt:
-            reg=re.search(r"\(([^)]+)\)",txt)
-            if reg and "FR" not in reg.group(1).upper(): continue
-        dm=re.search(r"(?:lun|mar|mer|jeu|ven|sam|dim)\.?\s+(\d{1,2})\s+([A-Za-zÀ-ÿ]+)",txt,re.I)
-        if not dm: continue
-        d=parse_date_fragment(dm.group(0))
-        if not d: continue
-        st=parse_dt(d,tm.group(1),tm.group(3)); en=parse_dt(d,tm.group(2) or tm.group(1),tm.group(3))
-        if not tm.group(2): en=st+timedelta(hours=2)
-        events.append({"date":d.isoformat(),"start_dt":st,"end_dt":en,"title":normalize_title(title),"category":infer_category(title),"broadcasters":[label],"source":url})
+        text=clean(html.unescape(re.sub(r"<[^>]+>"," ",body)))
+        for m in re.finditer(
+            r"(?:(?:lun|mar|mer|jeu|ven|sam|dim)\.\s+)?(\d{1,2})\s+([A-Za-zÀ-ÿ]+)"
+            r"(?:\s+(?:Étape|Stage)\s+\d+)?"
+            r"(?P<rest>[^\n]{0,220})", text, re.I):
+            frag=m.group(0)
+            tm=TIME_RE.search(frag)
+            if not tm: continue
+            if label=="EUROSPORT" and "(" in frag:
+                reg=re.search(r"\(([^)]+)\)",frag)
+                if reg and "FR" not in reg.group(1).upper(): continue
+            d=parse_date_fragment(m.group(0))
+            if not d: continue
+            st=parse_dt(d,tm.group(1),tm.group(3))
+            en=parse_dt(d,tm.group(2) or tm.group(1),tm.group(3))
+            if not tm.group(2): en=st+timedelta(hours=2)
+            events.append({"date":d.isoformat(),"start_dt":st,"end_dt":en,"title":normalize_title(title),"category":infer_category(title),"broadcasters":[label],"source":url})
     return events
 
 def parse_day_broadcasts(d):
