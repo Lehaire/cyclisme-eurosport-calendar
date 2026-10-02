@@ -389,51 +389,27 @@ def write_ics(events):
     OUT.write_text("\r\n".join(out) + "\r\n", encoding="utf-8")
 
 def main():
-    # The day pages are the authoritative, date-specific source: they expose
-    # every French broadcaster row (Eurosport, L'EquipeTV, France TV, Novo19)
-    # and avoid creating false duplicates from multi-day channel pages.
+    # Date-specific day pages are the primary source. We use both the visible
+    # race blocks and the compact broadcaster rows embedded in the page:
+    # the latter also catches MTB, cyclocross and gravel broadcasts that do not
+    # always appear under the same visible "race" marker.
     events = []
     today = datetime.now(PARIS).date()
-    for n in range(10):
+    for n in range(DAYS):
         d = today + timedelta(days=n)
+        day_events = []
         try:
-            text, url = fetch_day(d)
-            soup = BeautifulSoup(text, "html.parser")
-            plain = soup.get_text("\n")
-            blocks = extract_blocks(plain)
-            day_events = []
-            for title, block, category in blocks:
-                broadcasters = []
-                for ch, label in CHANNELS.items():
-                    hit = find_channel_time(block, ch)
-                    if not hit:
-                        continue
-                    start, end, tz = hit
-                    try:
-                        st = parse_dt(d, start, tz)
-                        en = parse_dt(d, end or start, tz)
-                        if not end:
-                            en = st + timedelta(hours=2)
-                        broadcasters.append((label, st, en))
-                    except Exception:
-                        continue
-                if broadcasters:
-                    day_events.append({
-                        "date": d.isoformat(),
-                        "start_dt": min(x[1] for x in broadcasters),
-                        "end_dt": max(x[2] for x in broadcasters),
-                        "title": normalize_title(title),
-                        "category": category,
-                        "broadcasters": sorted({x[0] for x in broadcasters}),
-                        "source": url,
-                    })
-            events.extend(day_events)
-            print("DAY", d, len(day_events))
+            day_events.extend(parse_day(d))
         except Exception as ex:
-            print("WARN DAY", d, ex)
-
-    # Manual entries remain as a fallback for broadcasts that are not yet
-    # present on Course du Jour (notably Novo19/France 3 when needed).
+            print("WARN BLOCKS", d, ex)
+        try:
+            day_events.extend(parse_day_broadcasts(d))
+        except Exception as ex:
+            print("WARN BROADCAST ROWS", d, ex)
+        # Deduplicate within the day before adding manual fallbacks.
+        day_events = merge(day_events)
+        events.extend(day_events)
+        print("DAY", d, len(day_events))
     events = add_manual(events)
     events = merge(events)
     write_ics(events)
