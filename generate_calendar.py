@@ -248,13 +248,13 @@ def parse_channel_page(url,label):
                       raw, re.I|re.S)
     events=[]
     row_re=re.compile(
-        r"(?:lun|mar|mer|jeu|ven|sam|dim)\\.?\\s+"
-        r"(\\d{1,2})\\s+([A-Za-zÀ-ÿ]+)\\.?\\s+"
-        r"(?:Étape\\s+\\d+\\s+)?"
-        r"(?:[^·]{0,180}?\\s+)?"
-        r"(\\d{1,2}:\\d{2})(?:\\s*(AM|PM))?"
-        r"(?:\\s*[–-]\\s*(\\d{1,2}:\\d{2})(?:\\s*(AM|PM))?)?"
-        r"\\s*(CET|CEST|GMT[+-]\\d+|UTC|EET|EEST|JST)",
+        r"(?:lun|mar|mer|jeu|ven|sam|dim)\.?\s+"
+        r"(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\.?\s+"
+        r"(?:Étape\s+\d+\s+)?"
+        r"(?:[^·]{0,180}?\s+)?"
+        r"(\d{1,2}:\d{2})(?:\s*(AM|PM))?"
+        r"(?:\s*[–-]\s*(\d{1,2}:\d{2})(?:\s*(AM|PM))?)?"
+        r"\s*(CET|CEST|GMT[+-]\d+|UTC|EET|EEST|JST)",
         re.I
     )
 
