@@ -11,7 +11,7 @@ DAYS = 60
 OUT = Path("calendar.ics")
 MANUAL = Path("manual_events.json")
 PARIS = ZoneInfo("Europe/Paris")
-
+CHANNEL_PAGES = {\n    "EUROSPORT": "https://coursedujour.com/fr/chaines/eurosport/",\n    "FRANCE TV": "https://coursedujour.com/fr/chaines/france-tv/",\n}\n
 # Diffuseurs français que nous voulons suivre.
 CHANNELS = {
     "Eurosport / HBO Max": "EUROSPORT",
@@ -193,6 +193,79 @@ def parse_day(d):
                 "broadcasters": labels,
                 "source": url,
             })
+    return events
+
+
+MONTHS = {
+    "jan":1,"janv":1,"janvier":1,"fév":2,"fev":2,"févr":2,"fevr":2,"février":2,"fevrier":2,
+    "mar":3,"mars":3,"avr":4,"avril":4,"mai":5,"juin":6,"juil":7,"juillet":7,
+    "aoû":8,"aou":8,"août":8,"aout":8,"sep":9,"sept":9,"septembre":9,
+    "oct":10,"octobre":10,"nov":11,"novembre":11,"déc":12,"dec":12,"décembre":12,"decembre":12
+}
+BROADCAST_RE = re.compile(
+    r"^(?P<title>.+?)\s+on\s+(?P<channel>Eurosport / HBO Max|Eurosport / Discovery\+|L'EquipeTV|France TV|France 2|France 3|France 4|france\.tv|Novo19)"
+    r"(?:\s+\([^)]+\))?\s+·\s+(?P<date>\d{1,2}\s+[A-Za-zÀ-ÿ.]+\s+\d{4})\s+·\s+(?P<times>[^·]+?)\s+·",
+    re.I,
+)
+def parse_date_fragment(s):
+    m=re.search(r"(\d{1,2})\s+([A-Za-zÀ-ÿ]+)(?:\s+(\d{4}))?",clean(s).replace(".",""))
+    if not m: return None
+    mon=MONTHS.get(m.group(2).lower())
+    return datetime(int(m.group(3) or 2026),mon,int(m.group(1))).date() if mon else None
+
+def parse_channel_page(url,label):
+    soup=BeautifulSoup(requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=30).text,"html.parser")
+    events=[]; title=None
+    for n in soup.find_all(["h2","h3","li"]):
+        if n.name=="h2": title=None; continue
+        if n.name=="h3":
+            t=clean(n.get_text(" ",strip=True))
+            if t and t.lower() not in {"courses en vedette","derniers résumés"}: title=t
+            continue
+        if not title: continue
+        txt=clean(n.get_text(" ",strip=True))
+        if "Copier" not in txt: continue
+        tm=TIME_RE.search(txt)
+        if not tm: continue
+        if label=="EUROSPORT" and "(" in txt:
+            reg=re.search(r"\(([^)]+)\)",txt)
+            if reg and "FR" not in reg.group(1).upper(): continue
+        dm=re.search(r"(?:lun|mar|mer|jeu|ven|sam|dim)\.?\s+(\d{1,2})\s+([A-Za-zÀ-ÿ]+)",txt,re.I)
+        if not dm: continue
+        d=parse_date_fragment(dm.group(0))
+        if not d: continue
+        st=parse_dt(d,tm.group(1),tm.group(3)); en=parse_dt(d,tm.group(2) or tm.group(1),tm.group(3))
+        if not tm.group(2): en=st+timedelta(hours=2)
+        events.append({"date":d.isoformat(),"start_dt":st,"end_dt":en,"title":normalize_title(title),"category":infer_category(title),"broadcasters":[label],"source":url})
+    return events
+
+def parse_day_broadcasts(d):
+    url=BASE.format(d.isoformat())
+    r=requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=30)
+    if r.status_code!=200: raise RuntimeError(f"HTTP {r.status_code}")
+    soup=BeautifulSoup(r.text,"html.parser")
+    races=[clean(h.get_text(" ",strip=True)) for h in soup.find_all(["h3","h4"])]
+    events=[]
+    for p in soup.find_all("p"):
+        m=BROADCAST_RE.search(clean(p.get_text(" ",strip=True)))
+        if not m: continue
+        bd=parse_date_fragment(m.group("date"))
+        if bd!=d: continue
+        tm=TIME_RE.search(m.group("times"))
+        if not tm: continue
+        label=next((v for k,v in CHANNELS.items() if k.lower()==m.group("channel").lower()),None)
+        if not label: continue
+        title=m.group("title")
+        # Restore the full race title by token overlap.
+        toks={x for x in re.findall(r"[\wÀ-ÿ]+",title.lower()) if len(x)>2 and x not in {"euros","race","road"}}
+        best=title; score=0
+        for rt in races:
+            s=len(toks & {x for x in re.findall(r"[\wÀ-ÿ]+",rt.lower()) if len(x)>2})
+            if s>score: best,score=rt,s
+        if score>=2: title=best
+        st=parse_dt(d,tm.group(1),tm.group(3)); en=parse_dt(d,tm.group(2) or tm.group(1),tm.group(3))
+        if not tm.group(2): en=st+timedelta(hours=2)
+        events.append({"date":d.isoformat(),"start_dt":st,"end_dt":en,"title":normalize_title(title),"category":infer_category(title),"broadcasters":[label],"source":url})
     return events
 
 def add_manual(events):
