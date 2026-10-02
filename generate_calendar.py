@@ -240,21 +240,20 @@ def fetch_url(url):
 def parse_channel_page(url,label):
     raw=fetch_url(url)
     print("CHANNEL DEBUG", label, "raw", len(raw), "h3", len(re.findall(r"<h3", raw, re.I)), "h2", len(re.findall(r"<h2", raw, re.I)))
-    for mm in list(re.finditer(r"/api/", raw, re.I))[:10]:
-        print("CHANNEL API SNIP", repr(raw[max(0,mm.start()-120):mm.start()+220]))
-    # The channel page is server-rendered. Parse each H3 race section from
-    # the raw HTML, then strip markup and extract the dated broadcast rows.
-    chunks=re.findall(r"<h3[^>]*>(.*?)</h3>(.*?)(?=<h3[^>]*>|<h2[^>]*>|$)",
-                      raw, re.I|re.S)
+
+    # The channel page contains broadcast rows for all cycling disciplines.
+    # Do not rely on H3 sections: MTB/cyclocross/gravel rows can live outside
+    # the route H3 blocks. Parse every visible <p> row containing a broadcaster.
+    soup=BeautifulSoup(raw, "html.parser")
     events=[]
+
     row_re=re.compile(
-        r"(?:lun|mar|mer|jeu|ven|sam|dim)\.?\s+"
-        r"(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\.?\s+"
-        r"(?:Étape\s+\d+\s+)?"
-        r"(?:[^·]{0,180}?\s+)?"
-        r"(\d{1,2}:\d{2})(?:\s*(AM|PM))?"
-        r"(?:\s*[–-]\s*(\d{1,2}:\d{2})(?:\s*(AM|PM))?)?"
-        r"\s*(CET|CEST|GMT[+-]\d+|UTC|EET|EEST|JST)",
+        r"^(?P<title>.+?)\\s+on\\s+"
+        r"(?P<channel>Eurosport / HBO Max|Eurosport / Discovery\\+|HBO Max|L'EquipeTV|France TV|France 2|France 3|France 4|france\\.tv|Novo19)"
+        r"(?:\\s+\\([^)]+\\))?\\s+·\\s+"
+        r"(?P<date>\\d{1,2}\\s+[A-Za-zÀ-ÿ.]+\\s+\\d{4})\\s+·\\s+"
+        r"(?P<t1>\\d{1,2}:\\d{2})\\s*(?P<ap1>AM|PM)?\\s*(?:[-–]\\s*(?P<t2>\\d{1,2}:\\d{2})\\s*(?P<ap2>AM|PM)?)?\\s+"
+        r"(?P<tz>CET|CEST|GMT[+-]\\d+|UTC|EDT|EST|PDT|PST|EET|EEST|JST)\\s+·",
         re.I
     )
 
@@ -266,28 +265,40 @@ def parse_channel_page(url,label):
             if ap=="PM" and h!=12: h+=12
         return f"{h:02d}:{m:02d}"
 
-    for h3_html, body in chunks:
-        title=clean(re.sub(r"<[^>]+>"," ",h3_html))
-        if not title or title.lower() in {"courses en vedette","derniers résumés","course"}:
+    seen=set()
+    for p in soup.find_all("p"):
+        text=clean(p.get_text(" ",strip=True))
+        m=row_re.search(text)
+        if not m:
             continue
-        text=clean(html.unescape(re.sub(r"<[^>]+>"," ",body)))
-        for m in row_re.finditer(text):
-            day=int(m.group(1))
-            month=MONTHS.get(m.group(2).lower().rstrip("."))
-            if not month:
-                continue
-            d=date(2026,month,day)
-            st=parse_dt(d,to24(m.group(3),m.group(4)),m.group(7))
-            en=parse_dt(d,to24(m.group(5),m.group(6) or m.group(4)),m.group(7)) if m.group(5) else st+timedelta(hours=2)
-            events.append({
-                "date":d.isoformat(),
-                "start_dt":st,
-                "end_dt":en,
-                "title":normalize_title(title),
-                "category":infer_category(title),
-                "broadcasters":[label],
-                "source":url
-            })
+        channel=m.group("channel")
+        mapped=next((v for k,v in CHANNELS.items() if k.lower()==channel.lower()),None)
+        # Keep only rows belonging to the channel page being parsed.
+        if not mapped or mapped != label:
+            continue
+        bd=parse_date_fragment(m.group("date"))
+        if not bd:
+            continue
+        st=parse_dt(bd,to24(m.group("t1"),m.group("ap1")),m.group("tz"))
+        if m.group("t2"):
+            en=parse_dt(bd,to24(m.group("t2"),m.group("ap2") or m.group("ap1")),m.group("tz"))
+        else:
+            en=st+timedelta(hours=2)
+        title=normalize_title(m.group("title").strip(" ·-"))
+        key=(bd.isoformat(), title.lower(), st.isoformat(), label)
+        if key in seen:
+            continue
+        seen.add(key)
+        events.append({
+            "date":bd.isoformat(),
+            "start_dt":st,
+            "end_dt":en,
+            "title":title,
+            "category":infer_category(title),
+            "broadcasters":[label],
+            "source":url
+        })
+
     print("CHANNEL PARSE", label, len(events))
     return events
 
