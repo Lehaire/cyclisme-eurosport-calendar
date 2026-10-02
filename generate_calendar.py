@@ -11,6 +11,11 @@ DAYS = 60
 OUT = Path("calendar.ics")
 MANUAL = Path("manual_events.json")
 PARIS = ZoneInfo("Europe/Paris")
+TVEPG_PAGES = {
+    "EUROSPORT 1": "https://tvepg.eu/fr/france/c/eurosport-1",
+    "EUROSPORT 2": "https://tvepg.eu/fr/france/c/eurosport-2",
+}
+
 CHANNEL_PAGES = {
     "EUROSPORT": "https://coursedujour.com/fr/chaines/eurosport/",
     "FRANCE TV": "https://coursedujour.com/fr/chaines/france-tv/",
@@ -350,6 +355,56 @@ def parse_day_broadcasts(d):
         events.append({"date":d.isoformat(),"start_dt":st,"end_dt":en,"title":normalize_title(title),"category":infer_category(title),"broadcasters":[label],"source":url})
     return events
 
+
+def parse_tvepg_page(url, label):
+    raw = fetch_url(url)
+    soup = BeautifulSoup(raw, "html.parser")
+    lines = [clean(x) for x in soup.get_text("\n").splitlines()]
+    lines = [x for x in lines if x]
+    events = []
+    current_date = None
+    entries = []
+    date_re = re.compile(r"(?:Aujourd'hui|Demain)\\s*[-·]\\s*(\\d{2}/\\d{2}/\\d{4})", re.I)
+    time_re = re.compile(r"^(\\d{1,2}:\\d{2})\\s+(.+)$")
+    for line in lines:
+        dm = date_re.search(line)
+        if dm:
+            dd, mm, yyyy = map(int, dm.group(1).split("/"))
+            current_date = date(yyyy, mm, dd)
+            continue
+        tm = time_re.match(line)
+        if not tm or not current_date:
+            continue
+        title = clean(tm.group(2))
+        low = title.lower()
+        cycling = any(k in low for k in ["cyclisme","cycling","uci","vtt","mountain bike","mountainbike","cross-country","short track","downhill","descente","xco","xcc","cyclocross","cyclo-cross","gravel","giro","tour de ","championnats d'europe","championnats du monde de cyclisme","proseries"])
+        non_cycling = any(k in low for k in ["motocross","trail","triathlon","snooker","tennis","tir:","tir ","escrime","équitation","golf","endurance car","fia wec"])
+        if cycling and not non_cycling:
+            entries.append((current_date, tm.group(1), title))
+    for i, (d, hhmm, title) in enumerate(entries):
+        h, m = map(int, hhmm.split(":"))
+        st = datetime(d.year, d.month, d.day, h, m, tzinfo=PARIS)
+        en = st + timedelta(minutes=45)
+        for d2, t2, _ in entries[i+1:]:
+            if d2 != d:
+                break
+            hh2, mm2 = map(int, t2.split(":"))
+            cand = datetime(d.year, d.month, d.day, hh2, mm2, tzinfo=PARIS)
+            if cand > st:
+                if cand - st <= timedelta(hours=4):
+                    en = cand
+                break
+        events.append({"date":d.isoformat(),"start_dt":st,"end_dt":en,"title":normalize_title(title),"category":infer_category(title),"broadcasters":["EUROSPORT"],"source":url})
+    out = []
+    seen = set()
+    for e in events:
+        key = (e["date"], e["start_dt"].isoformat(), e["title"].lower(), label)
+        if key not in seen:
+            seen.add(key)
+            out.append(e)
+    print("TVEPG PARSE", label, len(out))
+    return out
+
 def add_manual(events):
     if not MANUAL.exists():
         return events
@@ -359,6 +414,7 @@ def add_manual(events):
         e2 = dict(e)
         e2["start_dt"], e2["end_dt"] = st, en
         e2["broadcasters"] = [e["broadcaster"]]
+        e2["manual"] = True
         events.append(e2)
     return events
 
@@ -383,6 +439,10 @@ def merge(events):
             en = e.get("end_dt", e.get("end"))
             m["start_dt"] = min(m["start_dt"], st)
             m["end_dt"] = max(m["end_dt"], en)
+            if e.get("manual"):
+                m["start_dt"] = e["start_dt"]
+                m["end_dt"] = e["end_dt"]
+                m["manual"] = True
             if e.get("source"):
                 old = m.get("source", "")
                 if e["source"] not in old.split(" | "):
@@ -446,6 +506,12 @@ def main():
     # Channel pages contain the broadcaster's confirmed schedule beyond the
     # short rolling window of the day pages. Use them as the long-range source
     # for Eurosport and France TV, then complement with date-specific pages.
+    for label, url in TVEPG_PAGES.items():
+        try:
+            events.extend(parse_tvepg_page(url, label))
+        except Exception as ex:
+            print("WARN TVEPG", label, ex)
+
     for label, url in CHANNEL_PAGES.items():
         try:
             channel_events = parse_channel_page(url, label)
