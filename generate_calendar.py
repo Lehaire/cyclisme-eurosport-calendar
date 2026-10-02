@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import hashlib, html, json, re
-from datetime import date, datetime, timedelta
+import hashlib, html, json, re, time
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import requests
@@ -12,7 +12,7 @@ OUT = Path("calendar.ics")
 MANUAL = Path("manual_events.json")
 PARIS = ZoneInfo("Europe/Paris")
 
-# Only broadcasters intended for the French calendar.
+# Diffuseurs français que nous voulons suivre.
 CHANNELS = {
     "Eurosport / HBO Max": "EUROSPORT",
     "Eurosport / Discovery+": "EUROSPORT",
@@ -23,17 +23,30 @@ CHANNELS = {
     "France 3": "FRANCE 3",
     "France 4": "FRANCE 4",
     "france.tv": "FRANCE TV",
+    "Novo19": "NOVO19",
 }
 
 TZ_OFFSETS = {
     "CET": 1, "CEST": 2, "UTC": 0, "GMT": 0,
     "GMT+1": 1, "GMT+2": 2, "GMT+3": 3, "GMT+4": 4,
-    "GMT+5": 5, "GMT+6": 6, "GMT+7": 7, "GMT+8": 8,
-    "GMT+9": 9, "EDT": -4, "EST": -5, "PDT": -7, "PST": -8,
+    "GMT+5": 5, "GMT+6": 6, "GMT+7": 7, "GMT+8": 8, "GMT+9": 9,
+    "EDT": -4, "EST": -5, "PDT": -7, "PST": -8,
     "EET": 2, "EEST": 3, "JST": 9,
 }
 
-TIME_RE = re.compile(r"\b(\d{1,2}:\d{2})(?:\s*[–-]\s*(\d{1,2}:\d{2}))?\s*([A-Z]{2,5}(?:[+-]\d+)?)\b")
+TIME_RE = re.compile(
+    r"\b(\d{1,2}:\d{2})(?:\s*[–-]\s*(\d{1,2}:\d{2}))?\s*"
+    r"([A-Z]{2,5}(?:[+-]\d+)?)\b"
+)
+
+DISCIPLINE_HEADINGS = {
+    "route": "Route",
+    "cx": "Cyclocross",
+    "cyclocross": "Cyclocross",
+    "gravel": "Gravel",
+    "mtb": "VTT",
+    "vtt": "VTT",
+}
 
 def clean(s):
     return re.sub(r"\s+", " ", html.unescape(s or "")).strip()
@@ -49,87 +62,110 @@ def uid_for(d, title, category):
 
 def parse_dt(d, hhmm, tzname):
     h, m = map(int, hhmm.split(":"))
-    off = TZ_OFFSETS.get(tzname)
-    if off is None:
-        off = 2 if tzname == "CEST" else 1 if tzname == "CET" else 0
-    # Build a fixed-offset datetime, then convert to Paris.
-    from datetime import timezone
+    off = TZ_OFFSETS.get(tzname, 2 if tzname == "CEST" else 1 if tzname == "CET" else 0)
     local = datetime(d.year, d.month, d.day, h, m, tzinfo=timezone(timedelta(hours=off)))
     return local.astimezone(PARIS)
 
+def fetch_day(d):
+    url = BASE.format(d.isoformat())
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; LehaireCyclingCalendar/1.1)",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7",
+        "Referer": "https://coursedujour.com/fr/",
+    }
+    last = None
+    for attempt in range(3):
+        try:
+            r = requests.get(url, timeout=30, headers=headers)
+            if r.status_code == 200:
+                return r.text, url
+            last = f"HTTP {r.status_code}"
+        except Exception as ex:
+            last = repr(ex)
+        time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(last or "request failed")
+
 def extract_blocks(text):
-    # The rendered page has a stable marker immediately before each race title.
-    marker = re.compile(r"Copier (?:le nom et les horaires de la course|race name and times|il nome e gli orari della corsa)", re.I)
     lines = [clean(x) for x in text.splitlines()]
     lines = [x for x in lines if x]
-    starts = [i for i,x in enumerate(lines) if marker.search(x)]
+
+    marker = re.compile(
+        r"Copier .*?(?:nom et les horaires|horaire|horaires).*?(?:course|race)",
+        re.I
+    )
+    starts = [i for i, x in enumerate(lines) if marker.search(x)]
+
     blocks = []
+    current_section = "Cyclisme"
     for n, i in enumerate(starts):
-        j = starts[n+1] if n+1 < len(starts) else len(lines)
+        # Recover the nearest discipline heading before the race.
+        for prev in range(i - 1, max(-1, i - 15), -1):
+            low = lines[prev].lower()
+            if low in DISCIPLINE_HEADINGS:
+                current_section = DISCIPLINE_HEADINGS[low]
+                break
+
+        j = starts[n + 1] if n + 1 < len(starts) else len(lines)
         block = lines[i:j]
         if len(block) < 2:
             continue
-        # Marker line is followed by the race title.
         title = block[1]
-        # Skip accidental headings / UI text.
-        if title.lower() in {"copier le nom et les horaires de la course", "copy race name and times"}:
+        if title.lower() in {
+            "copier le nom et les horaires de la course",
+            "copy race name and times",
+        }:
             continue
-        blocks.append((title, block))
+        blocks.append((title, block, current_section))
     return blocks
 
 def find_channel_time(block, channel):
-    # Exact channel rows are followed by a time row in Course du Jour.
     for i, line in enumerate(block):
         if channel not in line:
             continue
-        # Ignore the compact list of broadcasters at the top of a race block.
+        # Ignore the compact broadcaster list above the detailed rows.
         if "(" not in line and not line.endswith("FR"):
             continue
-        for nxt in block[i+1:i+4]:
+        for nxt in block[i + 1:i + 5]:
             m = TIME_RE.search(nxt)
             if m:
                 return m.group(1), m.group(2), m.group(3)
     return None
 
 def parse_day(d):
-    url = BASE.format(d.isoformat())
-    r = requests.get(url, timeout=30, headers={"User-Agent":"Mozilla/5.0 cycling-calendar/1.0"})
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
+    text, url = fetch_day(d)
+    soup = BeautifulSoup(text, "html.parser")
     text = soup.get_text("\n")
     events = []
-    for title, block in extract_blocks(text):
-        # Determine discipline/category from nearby text where available.
-        category = "Cyclisme"
-        joined = " ".join(block[:5])
-        if "cyclocross" in joined.lower() or "CX" in joined:
-            category = "Cyclocross"
-        elif "gravel" in joined.lower():
-            category = "Gravel"
-        elif "MTB" in joined or "VTT" in joined:
-            category = "VTT"
+
+    for title, block, category in extract_blocks(text):
         broadcasters = []
         for ch, label in CHANNELS.items():
             hit = find_channel_time(block, ch)
-            if hit:
-                start, end, tz = hit
-                try:
-                    st = parse_dt(d, start, tz)
-                    en = parse_dt(d, end or start, tz)
-                    if not end:
-                        en = st + timedelta(hours=2)
-                    broadcasters.append((label, st, en))
-                except Exception:
-                    pass
-        # Group the event by race; use earliest start and latest end if multiple broadcasters.
+            if not hit:
+                continue
+            start, end, tz = hit
+            try:
+                st = parse_dt(d, start, tz)
+                en = parse_dt(d, end or start, tz)
+                if not end:
+                    en = st + timedelta(hours=2)
+                broadcasters.append((label, st, en))
+            except Exception:
+                pass
+
         if broadcasters:
             st = min(x[1] for x in broadcasters)
             en = max(x[2] for x in broadcasters)
             labels = sorted({x[0] for x in broadcasters})
             events.append({
-                "date": d.isoformat(), "start": st, "end": en,
-                "title": normalize_title(title), "category": category,
-                "broadcasters": labels, "source": url
+                "date": d.isoformat(),
+                "start": st,
+                "end": en,
+                "title": normalize_title(title),
+                "category": category,
+                "broadcasters": labels,
+                "source": url,
             })
     return events
 
@@ -146,10 +182,14 @@ def add_manual(events):
     return events
 
 def merge(events):
-    # Stable identity: date + normalized title + category.
+    # Stable identity: date + normalized title + discipline.
     merged = {}
     for e in events:
-        key = (e["date"], normalize_title(e["title"]).lower(), e.get("category","Cyclisme").lower())
+        key = (
+            e["date"],
+            normalize_title(e["title"]).lower(),
+            e.get("category", "Cyclisme").lower(),
+        )
         if key not in merged:
             merged[key] = dict(e)
             merged[key]["broadcasters"] = sorted(set(e.get("broadcasters", [])))
@@ -163,11 +203,18 @@ def merge(events):
             m["start_dt"] = min(m["start_dt"], st)
             m["end_dt"] = max(m["end_dt"], en)
             if e.get("source"):
-                m["source"] = m.get("source","") + " | " + e["source"]
+                old = m.get("source", "")
+                if e["source"] not in old.split(" | "):
+                    m["source"] = (old + " | " + e["source"]).strip(" |")
     return sorted(merged.values(), key=lambda x: x["start_dt"])
 
 def esc(s):
-    return str(s).replace("\\","\\\\").replace(";","\\;").replace(",","\\,").replace("\n","\\n")
+    return (
+        str(s).replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\n", "\\n")
+    )
 
 def ics_dt(dt):
     return dt.astimezone(ZoneInfo("UTC")).strftime("%Y%m%dT%H%M%SZ")
@@ -184,10 +231,15 @@ def write_ics(events):
         "X-WR-TIMEZONE:Europe/Paris",
     ]
     for e in events:
-        uid = uid_for(e["date"], e["title"], e.get("category","Cyclisme"))
+        uid = uid_for(e["date"], e["title"], e.get("category", "Cyclisme"))
         labels = " + ".join(e["broadcasters"])
         summary = f"[{labels}] {e['title']}"
-        desc = f"Diffusion cyclisme en France\\nDiffuseur(s): {labels}\\nSource: {e.get('source','Course du Jour')}"
+        desc = (
+            f"Diffusion cyclisme en France\\n"
+            f"Diffuseur(s): {labels}\\n"
+            f"Discipline: {e.get('category','Cyclisme')}\\n"
+            f"Source: {e.get('source','Course du Jour')}"
+        )
         out += [
             "BEGIN:VEVENT",
             f"UID:{uid}",
@@ -203,19 +255,24 @@ def write_ics(events):
     OUT.write_text("\r\n".join(out) + "\r\n", encoding="utf-8")
 
 def main():
-    today = date.today()
+    # Use Paris local date rather than the GitHub runner's UTC date.
+    today = datetime.now(PARIS).date()
     events = []
+    ok_days = 0
     for n in range(DAYS):
         d = today + timedelta(days=n)
         try:
-            events.extend(parse_day(d))
-            print("OK", d, len(events))
+            day_events = parse_day(d)
+            events.extend(day_events)
+            ok_days += 1
+            print("OK", d, len(day_events), "events")
         except Exception as ex:
             print("WARN", d, ex)
+
     events = add_manual(events)
     events = merge(events)
     write_ics(events)
-    print(f"Wrote {len(events)} events to {OUT}")
+    print(f"Wrote {len(events)} events to {OUT} from {ok_days} readable day pages")
 
 if __name__ == "__main__":
     main()
