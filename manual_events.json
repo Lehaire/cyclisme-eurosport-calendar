@@ -25,5 +25,14 @@
     "category": "Route",
     "broadcaster": "France 3",
     "source": "France Télévisions"
+  },
+  {
+    "date": "2026-10-03",
+    "start": "00:28",
+    "end": "01:13",
+    "title": "Lake Placid | Cross-country - Short track Élite (H)",
+    "category": "VTT",
+    "broadcaster": "EUROSPORT",
+    "source": "Eurosport TV guide"
   }
 ]
