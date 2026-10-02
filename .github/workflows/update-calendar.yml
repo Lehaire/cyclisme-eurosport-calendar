@@ -29,6 +29,8 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: pip install requests beautifulsoup4
+      - name: Sync with main
+        run: git pull --rebase origin main
       - name: Generate ICS
         run: python generate_calendar.py
       - name: Commit calendar
@@ -41,5 +43,4 @@ jobs:
             exit 0
           fi
           git commit -m "Update cycling TV calendar"
-          git pull --rebase origin main
           git push origin HEAD:main
