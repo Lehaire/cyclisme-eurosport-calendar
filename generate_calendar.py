@@ -239,6 +239,9 @@ def fetch_url(url):
 
 def parse_channel_page(url,label):
     raw=fetch_url(url)
+    print("CHANNEL DEBUG", label, "raw", len(raw), "h3", len(re.findall(r"<h3", raw, re.I)), "h2", len(re.findall(r"<h2", raw, re.I)))
+    for mm in list(re.finditer(r"/api/", raw, re.I))[:10]:
+        print("CHANNEL API SNIP", repr(raw[max(0,mm.start()-120):mm.start()+220]))
     # The channel page is server-rendered. Parse each H3 race section from
     # the raw HTML, then strip markup and extract the dated broadcast rows.
     chunks=re.findall(r"<h3[^>]*>(.*?)</h3>(.*?)(?=<h3[^>]*>|<h2[^>]*>|$)",
