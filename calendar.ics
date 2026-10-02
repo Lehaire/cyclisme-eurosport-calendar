@@ -7,29 +7,29 @@ X-WR-CALNAME:Cyclisme TV — France
 X-WR-TIMEZONE:Europe/Paris
 BEGIN:VEVENT
 UID:cycling-tv-31160cc82b4aa81b0247c2e4df0de7dce3113955@lehaire.github.io
-DTSTAMP:20261002T114309Z
+DTSTAMP:20261002T114613Z
 DTSTART:20261003T123000Z
 DTEND:20261003T143500Z
 SUMMARY:[Novo19] Cholet Agglo Tour
-DESCRIPTION:Diffusion cyclisme en France\\nDiffuseur(s): Novo19\\nSource: Ouest-France / Novo19
+DESCRIPTION:Diffusion cyclisme en France\\nDiffuseur(s): Novo19\\nDiscipline: Route\\nSource: Ouest-France / Novo19
 STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:cycling-tv-5358ef5eb62bfe517dcb0477a1735aff43629b54@lehaire.github.io
-DTSTAMP:20261002T114309Z
+DTSTAMP:20261002T114613Z
 DTSTART:20261004T140000Z
 DTEND:20261004T162000Z
 SUMMARY:[Novo19] Tour de Vendée
-DESCRIPTION:Diffusion cyclisme en France\\nDiffuseur(s): Novo19\\nSource: Ouest-France / Novo19
+DESCRIPTION:Diffusion cyclisme en France\\nDiffuseur(s): Novo19\\nDiscipline: Route\\nSource: Ouest-France / Novo19
 STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:cycling-tv-5969326c3c523cb53a1c3e98e94dc5980b1dbab6@lehaire.github.io
-DTSTAMP:20261002T114309Z
+DTSTAMP:20261002T114613Z
 DTSTART:20261011T130000Z
 DTEND:20261011T151500Z
 SUMMARY:[France 3] Paris-Tours Elite
-DESCRIPTION:Diffusion cyclisme en France\\nDiffuseur(s): France 3\\nSource: France Télévisions
+DESCRIPTION:Diffusion cyclisme en France\\nDiffuseur(s): France 3\\nDiscipline: Route\\nSource: France Télévisions
 STATUS:CONFIRMED
 END:VEVENT
 END:VCALENDAR
