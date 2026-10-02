@@ -1,0 +1,29 @@
+[
+  {
+    "date": "2026-10-03",
+    "start": "14:30",
+    "end": "16:35",
+    "title": "Cholet Agglo Tour",
+    "category": "Route",
+    "broadcaster": "Novo19",
+    "source": "Ouest-France / Novo19"
+  },
+  {
+    "date": "2026-10-04",
+    "start": "16:00",
+    "end": "18:20",
+    "title": "Tour de Vendée",
+    "category": "Route",
+    "broadcaster": "Novo19",
+    "source": "Ouest-France / Novo19"
+  },
+  {
+    "date": "2026-10-11",
+    "start": "15:00",
+    "end": "17:15",
+    "title": "Paris-Tours Elite",
+    "category": "Route",
+    "broadcaster": "France 3",
+    "source": "France Télévisions"
+  }
+]
