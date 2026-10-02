@@ -147,6 +147,8 @@ def parse_day(d):
         if occ:
             raw_idx = occ[-1]
             print("DEBUG last Eurosport snippet:", repr(text[max(0, raw_idx-800):raw_idx+2500]))
+        for needle in ["L'EquipeTV", "France 3", "broadcast", "/api/", "__NEXT_DATA__"]:
+            print("DEBUG", needle, text.lower().count(needle.lower()))
     soup = BeautifulSoup(text, "html.parser")
     text = soup.get_text("\n")
     if d == datetime.now(PARIS).date():
