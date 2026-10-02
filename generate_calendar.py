@@ -281,24 +281,27 @@ def write_ics(events):
     OUT.write_text("\r\n".join(out) + "\r\n", encoding="utf-8")
 
 def main():
-    # Use Paris local date rather than the GitHub runner's UTC date.
-    today = datetime.now(PARIS).date()
     events = []
-    ok_days = 0
-    for n in range(DAYS):
+    for label, url in CHANNEL_PAGES.items():
+        try:
+            got = parse_channel_page(url, label)
+            events.extend(got)
+            print("CHANNEL", label, len(got))
+        except Exception as ex:
+            print("WARN CHANNEL", label, ex)
+    today = datetime.now(PARIS).date()
+    for n in range(10):
         d = today + timedelta(days=n)
         try:
-            day_events = parse_day(d)
-            events.extend(day_events)
-            ok_days += 1
-            print("OK", d, len(day_events), "events")
+            got = parse_day_broadcasts(d)
+            events.extend(got)
+            print("DAY", d, len(got))
         except Exception as ex:
-            print("WARN", d, ex)
-
+            print("WARN DAY", d, ex)
     events = add_manual(events)
     events = merge(events)
     write_ics(events)
-    print(f"Wrote {len(events)} events to {OUT} from {ok_days} readable day pages")
+    print(f"Wrote {len(events)} unique events to {OUT}")
 
 if __name__ == "__main__":
     main()
