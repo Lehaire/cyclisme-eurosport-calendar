@@ -149,8 +149,13 @@ def parse_day(d):
             print("DEBUG snippet:", repr(text[max(0, idx-250):idx+350]))
     events = []
 
-    for title, block, category in extract_blocks(text):
+    blocks = extract_blocks(text)
+    if d == datetime.now(PARIS).date():
+        print("DEBUG blocks:", [(b[0], len(b[1]), b[1][:8]) for b in blocks])
+    for title, block, category in blocks:
         broadcasters = []
+        if d == datetime.now(PARIS).date():
+            print("DEBUG channel hits:", {ch: find_channel_time(block, ch) for ch in CHANNELS if any(ch in x for x in block)})
         for ch, label in CHANNELS.items():
             hit = find_channel_time(block, ch)
             if not hit:
