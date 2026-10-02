@@ -141,6 +141,12 @@ def parse_day(d):
     text, url = fetch_day(d)
     soup = BeautifulSoup(text, "html.parser")
     text = soup.get_text("\n")
+    if d == datetime.now(PARIS).date():
+        marker_probe = re.compile(r"Copier .*?(?:nom et les horaires|horaire|horaires).*?(?:course|race)", re.I)
+        print("DEBUG raw Copier:", "Copier" in text, "marker:", len(marker_probe.findall(text)), "chars:", len(text))
+        idx = text.find("Copier")
+        if idx >= 0:
+            print("DEBUG snippet:", repr(text[max(0, idx-250):idx+350]))
     events = []
 
     for title, block, category in extract_blocks(text):
