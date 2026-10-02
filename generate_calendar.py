@@ -53,6 +53,16 @@ DISCIPLINE_HEADINGS = {
     "vtt": "VTT",
 }
 
+def infer_category(title):
+    low = title.lower()
+    if "cyclocross" in low or re.search(r"\bcx\b", low):
+        return "Cyclocross"
+    if "gravel" in low:
+        return "Gravel"
+    if any(x in low for x in ["mtb", "vtt", "xco", "downhill"]):
+        return "VTT"
+    return "Route"
+
 def clean(s):
     return re.sub(r"\s+", " ", html.unescape(s or "")).strip()
 
