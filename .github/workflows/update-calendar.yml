@@ -17,6 +17,8 @@ on:
 permissions:
   contents: write
 
+# Channel schedule parser validation
+
 jobs:
   update:
     runs-on: ubuntu-latest
