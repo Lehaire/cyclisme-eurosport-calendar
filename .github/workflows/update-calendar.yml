@@ -1,5 +1,9 @@
 name: Update cycling TV calendar
 
+concurrency:
+  group: cycling-calendar-update
+  cancel-in-progress: true
+
 on:
   schedule:
     - cron: "15 6 * * *"
