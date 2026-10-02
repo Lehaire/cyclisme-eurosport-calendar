@@ -239,30 +239,50 @@ def fetch_url(url):
 
 def parse_channel_page(url,label):
     raw=fetch_url(url)
-    # Parse h3 race sections directly from HTML; avoids walking every nested li.
-    chunks=re.findall(r"<h3[^>]*>(.*?)</h3>(.*?)(?=<h3[^>]*>|<h2[^>]*>|$)",raw,re.I|re.S)
+    soup=BeautifulSoup(raw,"html.parser")
     events=[]
-    for h3_html,body in chunks:
-        title=clean(re.sub(r"<[^>]+>"," ",h3_html))
-        if not title or title.lower() in {"courses en vedette","derniers résumés"}:
+    # The channel pages are server-rendered, but their markup changes
+    # occasionally. Read each H3 race section and parse date/time rows from
+    # the text until the next H2/H3 heading.
+    headings=soup.find_all("h3")
+    row_re=re.compile(
+        r"(?:lun|mar|mer|jeu|ven|sam|dim)\\.?\\s+"
+        r"(\\d{1,2})\\s+([A-Za-zÀ-ÿ]+)\\.?\\s+"
+        r".{0,160}?(\\d{1,2}:\\d{2})"
+        r"(?:\\s*[–-]\\s*(\\d{1,2}:\\d{2}))?\\s*"
+        r"(CET|CEST|GMT[+-]\\d+|UTC|EET|EEST|JST)",
+        re.I
+    )
+    for h in headings:
+        title=clean(h.get_text(" ",strip=True))
+        if not title or title.lower() in {"courses en vedette","derniers résumés","course"}:
             continue
-        text=clean(html.unescape(re.sub(r"<[^>]+>"," ",body)))
-        for m in re.finditer(
-            r"(?:(?:lun|mar|mer|jeu|ven|sam|dim)\.\s+)?(\d{1,2})\s+([A-Za-zÀ-ÿ]+)"
-            r"(?:\s+(?:Étape|Stage)\s+\d+)?"
-            r"(?P<rest>[^\n]{0,220})", text, re.I):
-            frag=m.group(0)
-            tm=TIME_RE.search(frag)
-            if not tm: continue
-            if label=="EUROSPORT" and "(" in frag:
-                reg=re.search(r"\(([^)]+)\)",frag)
-                if reg and "FR" not in reg.group(1).upper(): continue
-            d=parse_date_fragment(m.group(0))
-            if not d: continue
-            st=parse_dt(d,tm.group(1),tm.group(3))
-            en=parse_dt(d,tm.group(2) or tm.group(1),tm.group(3))
-            if not tm.group(2): en=st+timedelta(hours=2)
-            events.append({"date":d.isoformat(),"start_dt":st,"end_dt":en,"title":normalize_title(title),"category":infer_category(title),"broadcasters":[label],"source":url})
+        parts=[]
+        for node in h.find_all_next():
+            if node is not h and node.name in ("h2","h3"):
+                break
+            if node.name in ("li","p"):
+                t=clean(node.get_text(" ",strip=True))
+                if t:
+                    parts.append(t)
+        text=" ".join(dict.fromkeys(parts))
+        for m in row_re.finditer(text):
+            day=int(m.group(1))
+            month=MONTHS.get(m.group(2).lower().rstrip("."))
+            if not month:
+                continue
+            d=date(2026,month,day)
+            st=parse_dt(d,m.group(3),m.group(5))
+            en=parse_dt(d,m.group(4),m.group(5)) if m.group(4) else st+timedelta(hours=2)
+            events.append({
+                "date":d.isoformat(),
+                "start_dt":st,
+                "end_dt":en,
+                "title":normalize_title(title),
+                "category":infer_category(title),
+                "broadcasters":[label],
+                "source":url
+            })
     return events
 
 def parse_day_broadcasts(d):
