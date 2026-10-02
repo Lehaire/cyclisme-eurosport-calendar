@@ -239,41 +239,42 @@ def fetch_url(url):
 
 def parse_channel_page(url,label):
     raw=fetch_url(url)
-    soup=BeautifulSoup(raw,"html.parser")
+    # The channel page is server-rendered. Parse each H3 race section from
+    # the raw HTML, then strip markup and extract the dated broadcast rows.
+    chunks=re.findall(r"<h3[^>]*>(.*?)</h3>(.*?)(?=<h3[^>]*>|<h2[^>]*>|$)",
+                      raw, re.I|re.S)
     events=[]
-    # The channel pages are server-rendered, but their markup changes
-    # occasionally. Read each H3 race section and parse date/time rows from
-    # the text until the next H2/H3 heading.
-    headings=soup.find_all("h3")
     row_re=re.compile(
         r"(?:lun|mar|mer|jeu|ven|sam|dim)\\.?\\s+"
         r"(\\d{1,2})\\s+([A-Za-zÀ-ÿ]+)\\.?\\s+"
-        r".{0,160}?(\\d{1,2}:\\d{2})"
-        r"(?:\\s*[–-]\\s*(\\d{1,2}:\\d{2}))?\\s*"
-        r"(CET|CEST|GMT[+-]\\d+|UTC|EET|EEST|JST)",
+        r"(?:Étape\\s+\\d+\\s+)?"
+        r"(?:[^·]{0,180}?\\s+)?"
+        r"(\\d{1,2}:\\d{2})(?:\\s*(AM|PM))?"
+        r"(?:\\s*[–-]\\s*(\\d{1,2}:\\d{2})(?:\\s*(AM|PM))?)?"
+        r"\\s*(CET|CEST|GMT[+-]\\d+|UTC|EET|EEST|JST)",
         re.I
     )
-    for h in headings:
-        title=clean(h.get_text(" ",strip=True))
+    def to24(s,ap):
+        h,m=map(int,s.split(":"))
+        if ap:
+            ap=ap.upper()
+            if ap=="AM" and h==12: h=0
+            if ap=="PM" and h!=12: h+=12
+        return f"{h:02d}:{m:02d}"
+
+    for h3_html, body in chunks:
+        title=clean(re.sub(r"<[^>]+>"," ",h3_html))
         if not title or title.lower() in {"courses en vedette","derniers résumés","course"}:
             continue
-        parts=[]
-        for node in h.find_all_next():
-            if node is not h and node.name in ("h2","h3"):
-                break
-            if node.name in ("li","p"):
-                t=clean(node.get_text(" ",strip=True))
-                if t:
-                    parts.append(t)
-        text=" ".join(dict.fromkeys(parts))
+        text=clean(html.unescape(re.sub(r"<[^>]+>"," ",body)))
         for m in row_re.finditer(text):
             day=int(m.group(1))
             month=MONTHS.get(m.group(2).lower().rstrip("."))
             if not month:
                 continue
             d=date(2026,month,day)
-            st=parse_dt(d,m.group(3),m.group(5))
-            en=parse_dt(d,m.group(4),m.group(5)) if m.group(4) else st+timedelta(hours=2)
+            st=parse_dt(d,to24(m.group(3),m.group(4)),m.group(7))
+            en=parse_dt(d,to24(m.group(5),m.group(6) or m.group(4)),m.group(7)) if m.group(5) else st+timedelta(hours=2)
             events.append({
                 "date":d.isoformat(),
                 "start_dt":st,
@@ -283,6 +284,7 @@ def parse_channel_page(url,label):
                 "broadcasters":[label],
                 "source":url
             })
+    print("CHANNEL PARSE", label, len(events))
     return events
 
 def parse_day_broadcasts(d):
