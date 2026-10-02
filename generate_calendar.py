@@ -7,7 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 
 BASE = "https://coursedujour.com/fr/day/{}/"
-DAYS = 120
+DAYS = 60
 OUT = Path("calendar.ics")
 MANUAL = Path("manual_events.json")
 PARIS = ZoneInfo("Europe/Paris")
@@ -80,9 +80,14 @@ def fetch_day(d):
             r = requests.get(url, timeout=30, headers=headers)
             if r.status_code == 200:
                 return r.text, url
+            # Future pages often do not exist yet. Do not waste retries on 404.
+            if r.status_code == 404:
+                raise RuntimeError("HTTP 404")
             last = f"HTTP {r.status_code}"
         except Exception as ex:
             last = repr(ex)
+            if "HTTP 404" in last:
+                raise
         time.sleep(1.5 * (attempt + 1))
     raise RuntimeError(last or "request failed")
 
