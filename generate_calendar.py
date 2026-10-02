@@ -258,28 +258,47 @@ def parse_day_broadcasts(d):
     url=BASE.format(d.isoformat())
     r=requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=30)
     if r.status_code!=200: raise RuntimeError(f"HTTP {r.status_code}")
+    # The day page embeds a compact HTML newsletter containing the actual
+    # broadcaster/time rows. Strip tags and decode entities.
+    plain=html.unescape(re.sub(r"<[^>]+>", " ", r.text))
+    plain=clean(plain)
+    race_titles=[]
     soup=BeautifulSoup(r.text,"html.parser")
-    races=[clean(h.get_text(" ",strip=True)) for h in soup.find_all(["h3","h4"])]
+    for h in soup.find_all(["h3","h4"]):
+        t=clean(h.get_text(" ",strip=True))
+        if t and t.lower() not in {"route","cx","cyclocross","gravel","mtb","vtt"}:
+            race_titles.append(t)
+    pat=re.compile(
+        r"(?P<title>[^·]{3,}?)\s+on\s+"
+        r"(?P<channel>Eurosport / HBO Max|Eurosport / Discovery\+|L'EquipeTV|France TV|France 2|France 3|France 4|france\.tv|Novo19)"
+        r"(?:\s+\([^)]+\))?\s+·\s+"
+        r"(?P<date>\d{1,2}\s+[A-Za-zÀ-ÿ]+\s+\d{4})\s+·\s+"
+        r"(?P<h1>\d{1,2}:\d{2})\s*(?P<ap1>AM|PM)?\s*[-–]\s*"
+        r"(?P<h2>\d{1,2}:\d{2})\s*(?P<ap2>AM|PM)?\s+(?P<tz>CET|CEST|GMT[+-]\d+|UTC|EDT|EST|PDT|PST|EET|EEST|JST)\s+·",
+        re.I
+    )
+    def to24(s,ap):
+        h,m=map(int,s.split(":"))
+        if ap:
+            ap=ap.upper()
+            if ap=="AM" and h==12: h=0
+            if ap=="PM" and h!=12: h+=12
+        return f"{h:02d}:{m:02d}"
     events=[]
-    for p in soup.find_all("p"):
-        m=BROADCAST_RE.search(clean(p.get_text(" ",strip=True)))
-        if not m: continue
+    for m in pat.finditer(plain):
         bd=parse_date_fragment(m.group("date"))
         if bd!=d: continue
-        tm=TIME_RE.search(m.group("times"))
-        if not tm: continue
         label=next((v for k,v in CHANNELS.items() if k.lower()==m.group("channel").lower()),None)
         if not label: continue
-        title=m.group("title")
-        # Restore the full race title by token overlap.
+        st=parse_dt(d,to24(m.group("h1"),m.group("ap1")),m.group("tz"))
+        en=parse_dt(d,to24(m.group("h2"),m.group("ap2") or m.group("ap1")),m.group("tz"))
+        title=m.group("title").strip(" ·-")
         toks={x for x in re.findall(r"[\wÀ-ÿ]+",title.lower()) if len(x)>2 and x not in {"euros","race","road"}}
         best=title; score=0
-        for rt in races:
+        for rt in race_titles:
             s=len(toks & {x for x in re.findall(r"[\wÀ-ÿ]+",rt.lower()) if len(x)>2})
             if s>score: best,score=rt,s
         if score>=2: title=best
-        st=parse_dt(d,tm.group(1),tm.group(3)); en=parse_dt(d,tm.group(2) or tm.group(1),tm.group(3))
-        if not tm.group(2): en=st+timedelta(hours=2)
         events.append({"date":d.isoformat(),"start_dt":st,"end_dt":en,"title":normalize_title(title),"category":infer_category(title),"broadcasters":[label],"source":url})
     return events
 
