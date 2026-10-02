@@ -257,6 +257,7 @@ def parse_channel_page(url,label):
         r"\\s*(CET|CEST|GMT[+-]\\d+|UTC|EET|EEST|JST)",
         re.I
     )
+
     def to24(s,ap):
         h,m=map(int,s.split(":"))
         if ap:
