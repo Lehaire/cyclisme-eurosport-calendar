@@ -140,6 +140,8 @@ def find_channel_time(block, channel):
 def parse_day(d):
     text, url = fetch_day(d)
     if d == datetime.now(PARIS).date():
+        ids = [s.get("id") for s in BeautifulSoup(text, "html.parser").find_all("script", {"type":"application/json"})]
+        print("DEBUG JSON script ids:", ids)
         raw_idx = text.find("Eurosport / HBO Max")
         if raw_idx >= 0:
             print("DEBUG raw Eurosport snippet:", repr(text[max(0, raw_idx-500):raw_idx+1800]))
