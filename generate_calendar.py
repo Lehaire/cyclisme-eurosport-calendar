@@ -142,9 +142,11 @@ def parse_day(d):
     if d == datetime.now(PARIS).date():
         ids = [s.get("id") for s in BeautifulSoup(text, "html.parser").find_all("script", {"type":"application/json"})]
         print("DEBUG JSON script ids:", ids)
-        raw_idx = text.find("Eurosport / HBO Max")
-        if raw_idx >= 0:
-            print("DEBUG raw Eurosport snippet:", repr(text[max(0, raw_idx-500):raw_idx+1800]))
+        occ = [m.start() for m in re.finditer(re.escape("Eurosport / HBO Max"), text)]
+        print("DEBUG Eurosport occurrences:", len(occ), "last:", occ[-1] if occ else -1)
+        if occ:
+            raw_idx = occ[-1]
+            print("DEBUG last Eurosport snippet:", repr(text[max(0, raw_idx-800):raw_idx+2500]))
     soup = BeautifulSoup(text, "html.parser")
     text = soup.get_text("\n")
     if d == datetime.now(PARIS).date():
