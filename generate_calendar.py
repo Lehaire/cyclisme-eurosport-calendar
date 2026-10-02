@@ -227,8 +227,18 @@ def parse_date_fragment(s):
     mon=MONTHS.get(m.group(2).lower())
     return datetime(int(m.group(3) or 2026),mon,int(m.group(1))).date() if mon else None
 
+def fetch_url(url):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; LehaireCyclingCalendar/1.2)",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7",
+    }
+    r = requests.get(url, headers=headers, timeout=30)
+    r.raise_for_status()
+    return r.text
+
 def parse_channel_page(url,label):
-    raw=fetch(url)
+    raw=fetch_url(url)
     # Parse h3 race sections directly from HTML; avoids walking every nested li.
     chunks=re.findall(r"<h3[^>]*>(.*?)</h3>(.*?)(?=<h3[^>]*>|<h2[^>]*>|$)",raw,re.I|re.S)
     events=[]
@@ -395,6 +405,18 @@ def main():
     # always appear under the same visible "race" marker.
     events = []
     today = datetime.now(PARIS).date()
+
+    # Channel pages contain the broadcaster's confirmed schedule beyond the
+    # short rolling window of the day pages. Use them as the long-range source
+    # for Eurosport and France TV, then complement with date-specific pages.
+    for label, url in CHANNEL_PAGES.items():
+        try:
+            channel_events = parse_channel_page(url, label)
+            events.extend(channel_events)
+            print("CHANNEL", label, len(channel_events))
+        except Exception as ex:
+            print("WARN CHANNEL", label, ex)
+
     for n in range(DAYS):
         d = today + timedelta(days=n)
         day_events = []
